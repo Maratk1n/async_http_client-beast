@@ -2,6 +2,7 @@
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/beast/http/read.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -9,11 +10,13 @@
 #include <boost/asio/ssl/stream.hpp>
 #include <iostream>
 #include <fstream>
-
+#include <boost/array.hpp>
 //------------------------------------------------------------------------------
 
 // Performs an HTTP GET and prints the response
 class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/ {
+
+  char buf_[512];
 
   boost::beast::flat_buffer buffer_; // (Must persist between reads)
   boost::beast::http::request<boost::beast::http::empty_body> req_;
@@ -39,6 +42,8 @@ class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/
 
   std::ofstream file;
   std::string file_name_;
+
+  std::string percentage2scale(unsigned int percentage);
 public:
   // Resolver and stream require an io_context
   explicit AsyncHttpClient();
