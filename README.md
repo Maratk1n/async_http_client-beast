@@ -2,7 +2,17 @@
 
 Usage:
 ```sh
-$ ./main <host> <port> <target> [<HTTP version: 1.0 or 1.1(default)>]
+ ./main --help
+ HTTP client options:
+  -s [ --host ] arg     Host, e.g.: localhost, http://example.com
+  -p [ --port ] arg     Port number
+  -t [ --target ] arg   Targer (at least '/')
+  -H [ --http ] arg     HTTP version, optional parameter (by default, version 
+                        is 1.1)
+  -o [ --output ] arg   The output file path for recording the target. Optional
+                        parameter
+  -h [ --help ]         Show help
+
 ```
 
 Example of use:
