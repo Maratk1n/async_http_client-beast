@@ -12,6 +12,10 @@ AsyncHttpClient::AsyncHttpClient()
 
 void AsyncHttpClient::run(const char *host, const char *port, const char *target, unsigned int version)
 {
+  // Verify that we need to write to the file.
+  if (!file_name_.empty()) {
+    file.open(file_name_);
+  }
   // Check protocol
   std::string server(host);
   std::string protocol;
@@ -44,7 +48,7 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
   req_.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 
   // Look up the domain name
-  resolver_.async_resolve(server, port, std::bind(&AsyncHttpClient::onResolve, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+  resolver_.async_resolve(server, port, std::bind(&AsyncHttpClient::onResolve, this, std::placeholders::_1, std::placeholders::_2));
 
   // Run the I/O service. The call will return when
   // the get operation is complete.
@@ -60,10 +64,10 @@ void AsyncHttpClient::onResolve(boost::system::error_code ec, boost::asio::ip::t
   if (https_mode_) {
     stream_.set_verify_mode(boost::asio::ssl::verify_peer);
     stream_.set_verify_callback(boost::bind(&AsyncHttpClient::verifyCertificate, this, _1, _2));
-    boost::asio::async_connect(stream_.next_layer(), results.begin(), results.end(), std::bind( &AsyncHttpClient::onConnect, shared_from_this(), std::placeholders::_1));
+    boost::asio::async_connect(stream_.next_layer(), results.begin(), results.end(), std::bind( &AsyncHttpClient::onConnect, this, std::placeholders::_1));
   }
   else {
-    boost::asio::async_connect(socket_, results.begin(), results.end(), std::bind(&AsyncHttpClient::onConnect, shared_from_this(), std::placeholders::_1));
+    boost::asio::async_connect(socket_, results.begin(), results.end(), std::bind(&AsyncHttpClient::onConnect, this, std::placeholders::_1));
   }
 }
 
@@ -74,11 +78,11 @@ void AsyncHttpClient::onConnect(boost::system::error_code ec)
 
   if (https_mode_) {
     // Perform the SSL handshake
-    stream_.async_handshake(boost::asio::ssl::stream_base::client, std::bind(&AsyncHttpClient::onHandshake, shared_from_this(), std::placeholders::_1));
+    stream_.async_handshake(boost::asio::ssl::stream_base::client, std::bind(&AsyncHttpClient::onHandshake, this, std::placeholders::_1));
   }
   else {
     // Send the HTTP request to the remote host
-    boost::beast::http::async_write(socket_, req_, std::bind(&AsyncHttpClient::onWrite, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_write(socket_, req_, std::bind(&AsyncHttpClient::onWrite, this, std::placeholders::_1, std::placeholders::_2));
   }
 }
 
@@ -88,7 +92,7 @@ void AsyncHttpClient::onHandshake(boost::system::error_code ec)
     return fail(ec, "handshake");
 
   // Send the HTTP request to the remote host
-  boost::beast::http::async_write(stream_, req_, std::bind(&AsyncHttpClient::onWrite, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+  boost::beast::http::async_write(stream_, req_, std::bind(&AsyncHttpClient::onWrite, this, std::placeholders::_1, std::placeholders::_2));
 }
 
 void AsyncHttpClient::onWrite(boost::system::error_code ec, std::size_t bytes_transferred)
@@ -100,11 +104,13 @@ void AsyncHttpClient::onWrite(boost::system::error_code ec, std::size_t bytes_tr
 
   if (https_mode_) {
     // Receive the HTTP response
-    boost::beast::http::async_read(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+    //stream_.async_read_some(res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
   }
   else {
     // Receive the HTTP response
-    boost::beast::http::async_read(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+    //socket_.async_read_some(res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
   }
 }
 
@@ -116,11 +122,17 @@ void AsyncHttpClient::onRead(boost::system::error_code ec, std::size_t bytes_tra
     return fail(ec, "read");
 
   // Write the message to standard out
-  std::cout << res_ << std::endl;
+  std::cout << res_.base() << std::endl;
+
+  if (file.is_open()) {
+    file << res_.body();
+    file.close();
+  }
+
 
   if (https_mode_) {
     // Gracefully close the stream
-    stream_.async_shutdown(std::bind(&AsyncHttpClient::onShutdown, shared_from_this(), std::placeholders::_1));
+    stream_.async_shutdown(std::bind(&AsyncHttpClient::onShutdown, this, std::placeholders::_1));
   }
   else {
     // Gracefully close the socket
@@ -146,6 +158,11 @@ void AsyncHttpClient::onShutdown(boost::system::error_code ec)
     return fail(ec, "shutdown");
 
   // If we get here then the connection is closed gracefully
+}
+
+void AsyncHttpClient::setFileName(const std::string &fileName)
+{
+  file_name_ = fileName;
 }
 
 bool AsyncHttpClient::verifyCertificate(bool preverified, boost::asio::ssl::verify_context &ctx)

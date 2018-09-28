@@ -8,11 +8,12 @@
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/ssl/stream.hpp>
 #include <iostream>
+#include <fstream>
 
 //------------------------------------------------------------------------------
 
 // Performs an HTTP GET and prints the response
-class AsyncHttpClient : public std::enable_shared_from_this<AsyncHttpClient> {
+class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/ {
 
   boost::beast::flat_buffer buffer_; // (Must persist between reads)
   boost::beast::http::request<boost::beast::http::empty_body> req_;
@@ -35,6 +36,9 @@ class AsyncHttpClient : public std::enable_shared_from_this<AsyncHttpClient> {
 
   // Report a failure
   void fail(boost::system::error_code ec, char const* what);
+
+  std::ofstream file;
+  std::string file_name_;
 public:
   // Resolver and stream require an io_context
   explicit AsyncHttpClient();
@@ -53,4 +57,6 @@ public:
   void onRead(boost::system::error_code ec, std::size_t bytes_transferred);
 
   void onShutdown(boost::system::error_code ec);
+
+  void setFileName(const std::string &fileName);
 };
