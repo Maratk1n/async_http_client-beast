@@ -7,13 +7,6 @@ int main(int argc, char** argv) {
 
   po::options_description desctiption("HTTP client options");
 
-  std::string helper = std::string("List of parameters:\n"
-                       "\t-h, --host\t\tHost, e.g.: localhost, http://example.com\n"
-                       "\t-p, --port\t\tPort number\n"
-                       "\t-t, --target\t\tTarger (at least '/')\n"
-                       "\t-H, --http\t\tHTTP version, optional parameter (by default, version is 1.1)\n"
-                       "\t-o, --output\t\tThe output file path for recording the target. Optional parameter\n"
-                       "\t--help\t\t\tHelp\n");
   desctiption.add_options()
       ("host,s", po::value<std::string>(), "Host, e.g.: localhost, http://example.com")
       ("port,p", po::value<std::string>(), "Port number")
