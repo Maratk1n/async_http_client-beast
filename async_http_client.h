@@ -20,16 +20,13 @@
 // Performs an HTTP GET and prints the response
 class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/ {
 
-  boost::beast::flat_buffer buffer_;
-  //std::vector<char> chunk_buffer_; // 16kb
-  char chunk_buffer_[16384];
-  int count = 0;
+  boost::beast::multi_buffer buffer_;
+
   boost::beast::http::request<boost::beast::http::empty_body> req_;
   boost::beast::http::response_parser<boost::beast::http::string_body> res_;
-  //boost::beast::http::response_parser<boost::beast::http::buffer_body> res_;
+  boost::beast::http::basic_parser<false, boost::beast::http::dynamic_body> chunk_res_;
 
-  boost::beast::http::response<boost::beast::http::string_body> cont_;
-
+  const size_t max_chunk_size_ = 16384;
   // The io_context is required for all I/O
   boost::asio::io_context ioc_;
   // The SSL context is required, and holds certificates

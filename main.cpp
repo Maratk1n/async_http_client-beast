@@ -26,18 +26,15 @@ int main(int argc, char** argv) {
     std::cerr << "Wrong arguments. Use\n"
                  "./main --help\n"
                  "to get help.\n";
-    //return EXIT_FAILURE;
+    return EXIT_FAILURE;
   }
   AsyncHttpClient client;
   if (vm.count("output")) {
     client.setFileName(vm["output"].as<std::string>());
   }
-  client.setFileName("/tmp/test1.cpp");
   unsigned int version = vm.count("http") && !std::strcmp("1.0", vm["http"].as<std::string>().c_str()) ? 10 : 11;
-
   // Launch the asynchronous operation
-  client.run("localhost", "8000", "/test1.cpp", version);
-  //client.run(vm["host"].as<std::string>().c_str(), vm["port"].as<std::string>().c_str(), vm["target"].as<std::string>().c_str(), version);
+  client.run(vm["host"].as<std::string>().c_str(), vm["port"].as<std::string>().c_str(), vm["target"].as<std::string>().c_str(), version);
 
   return EXIT_SUCCESS;
 }
