@@ -15,8 +15,6 @@ AsyncHttpClient::AsyncHttpClient()
   ctx_.set_default_verify_paths();
 
   res_.body_limit(std::numeric_limits<std::uint64_t>::max());
-
-  //chunk_buffer_.resize(16384); // 16kb
 }
 
 void AsyncHttpClient::run(const char *host, const char *port, const char *target, unsigned int version)
@@ -47,7 +45,6 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
     std::cerr << ec.message() << "\n";
     return;
   }
-
 
   // Set up an HTTP GET request message
   req_.version(version);
@@ -134,38 +131,19 @@ void AsyncHttpClient::onReadHeader(boost::system::error_code ec, std::size_t byt
   content_size_ = res_.content_length().value();
   std::cout << res_.get().base() << std::endl;
 
-  if (file_.is_open()) {
+  if (file_.is_open() && !res_.get().body().empty()) {
     file_ << res_.get().body();
-    std::cout << res_.get().body();
-  }
-
-  if (content_size_ == 0) {
-    std::cout << "Content is empty." << std::endl;
-    return;
   }
 
   // If we read the header, we can start reading content chunk by chunk.
   if (https_mode_) {
     // Receive the HTTP response
-    //boost::beast::http::async_read(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onReadFull, this, std::placeholders::_1, std::placeholders::_2));
-    boost::beast::http::async_read_some(stream_, buffer_, chunk_res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read_some(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
   }
   else {
     // Receive the HTTP response
-    //boost::beast::http::async_read(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onReadFull, this, std::placeholders::_1, std::placeholders::_2));
-    boost::beast::http::async_read_some(socket_, buffer_, chunk_res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read_some(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
   }
-}
-
-void AsyncHttpClient::onReadFull(boost::system::error_code ec, std::size_t bytes_transferred)
-{
-  file_ << res_.get().body();
-  file_.close();
-  std::cout << "--------------" << std::endl;
-  std::cout << boost::beast::buffers_to_string(buffer_.data());
-  std::cout << boost::beast::buffers(buffer_.data());
-
-  std::cout << bytes_transferred << std::endl;
 }
 
 void AsyncHttpClient::onRead(boost::system::error_code ec, std::size_t bytes_transferred)
@@ -183,23 +161,26 @@ void AsyncHttpClient::onRead(boost::system::error_code ec, std::size_t bytes_tra
   }
   std::cout << "Download: " << "[" << percentage2scale(percent) << "] (" << percent <<  "%)\r" << std::flush;
 
-
-  if (ec.value() != boost::asio::error::eof) { // continue loading
+  //if (ec.value() != boost::asio::error::eof) { // continue loading
+  if (!res_.is_done()) { // continue loading
     if (file_.is_open()) {
-      file_ << chunk_res_.get().body();
+      file_ << res_.get().body();
     }
-
+    res_.release();
     if (https_mode_) {
       // Receive the HTTPS response
-      boost::beast::http::async_read_some(stream_, buffer_, chunk_res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+      boost::beast::http::async_read_some(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
     }
     else {
       // Receive the HTTP response
-      boost::beast::http::async_read_some(socket_, buffer_, chunk_res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+      boost::beast::http::async_read_some(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
     }
   }
   else {
-    file_.close();
+    if (file_.is_open()) {
+      file_ << res_.get().body();
+      file_.close();
+    }
     std::cout << std::endl;
     std::cout << "Download completed." << std::endl;
     if (https_mode_) {

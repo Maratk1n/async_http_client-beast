@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
   unsigned int version = vm.count("http") && !std::strcmp("1.0", vm["http"].as<std::string>().c_str()) ? 10 : 11;
   // Launch the asynchronous operation
   client.run(vm["host"].as<std::string>().c_str(), vm["port"].as<std::string>().c_str(), vm["target"].as<std::string>().c_str(), version);
+  //client.run("localhost", "8000", "/test.jpg", 11);
 
   return EXIT_SUCCESS;
 }
