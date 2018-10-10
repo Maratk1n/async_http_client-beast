@@ -14,7 +14,10 @@ AsyncHttpClient::AsyncHttpClient()
 
   ctx_.set_default_verify_paths();
 
-  res_.body_limit(std::numeric_limits<std::uint64_t>::max());
+  res_.emplace(); // create parser
+
+  (*res_).body_limit(std::numeric_limits<std::uint64_t>::max());
+
 }
 
 void AsyncHttpClient::run(const char *host, const char *port, const char *target, unsigned int version)
@@ -113,11 +116,11 @@ void AsyncHttpClient::onWrite(boost::system::error_code ec, std::size_t bytes_tr
 
   if (https_mode_) {
     // Receive the HTTP response
-    boost::beast::http::async_read_header(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onReadHeader, this, std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read_header(stream_, buffer_, (*res_), std::bind(&AsyncHttpClient::onReadHeader, this, std::placeholders::_1, std::placeholders::_2));
   }
   else {
     // Receive the HTTP response
-    boost::beast::http::async_read_header(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onReadHeader, this, std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read_header(socket_, buffer_, (*res_), std::bind(&AsyncHttpClient::onReadHeader, this, std::placeholders::_1, std::placeholders::_2));
   }
 }
 
@@ -128,21 +131,22 @@ void AsyncHttpClient::onReadHeader(boost::system::error_code ec, std::size_t byt
   if(ec) {
     return fail(ec, "read header");
   }
-  content_size_ = res_.content_length().value();
-  std::cout << res_.get().base() << std::endl;
+  content_size_ = (*res_).content_length().value();
 
-  if (file_.is_open() && !res_.get().body().empty()) {
-    file_ << res_.get().body();
+  std::cout << (*res_).get().base() << std::endl; // print header
+
+  if (file_.is_open() && !(*res_).get().body().empty()) {
+    file_ << (*res_).get().body();
   }
 
   // If we read the header, we can start reading content chunk by chunk.
   if (https_mode_) {
-    // Receive the HTTP response
-    boost::beast::http::async_read_some(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+    // Receive the HTTPS response
+    boost::beast::http::async_read_some(stream_, buffer_, (*res_), std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
   }
   else {
     // Receive the HTTP response
-    boost::beast::http::async_read_some(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+    boost::beast::http::async_read_some(socket_, buffer_, (*res_), std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
   }
 }
 
@@ -151,34 +155,34 @@ void AsyncHttpClient::onRead(boost::system::error_code ec, std::size_t bytes_tra
   boost::ignore_unused(bytes_transferred);
   total_load_ += bytes_transferred;
 
-  if(ec && ec.value() != boost::asio::error::eof) {
+  if(ec && ec != boost::asio::error::eof) {
     return fail(ec, "read content");
   }
 
   unsigned int percent = static_cast<unsigned int>(total_load_ * 100.0f / content_size_);
-  if (ec.value() == boost::asio::error::eof) {
+  if (ec == boost::asio::error::eof) {
     percent = 100;
   }
   std::cout << "Download: " << "[" << percentage2scale(percent) << "] (" << percent <<  "%)\r" << std::flush;
 
-  //if (ec.value() != boost::asio::error::eof) { // continue loading
-  if (!res_.is_done()) { // continue loading
+  //if (ec != boost::asio::error::eof) { // continue loading
+  if (!(*res_).is_done()) { // continue loading
     if (file_.is_open()) {
-      file_ << res_.get().body();
+      file_ << (*res_).get().body();
     }
-    res_.release();
+    (*res_).release();
     if (https_mode_) {
       // Receive the HTTPS response
-      boost::beast::http::async_read_some(stream_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+      boost::beast::http::async_read_some(stream_, buffer_, (*res_), std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
     }
     else {
       // Receive the HTTP response
-      boost::beast::http::async_read_some(socket_, buffer_, res_, std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
+      boost::beast::http::async_read_some(socket_, buffer_, (*res_), std::bind(&AsyncHttpClient::onRead, this, std::placeholders::_1, std::placeholders::_2));
     }
   }
   else {
     if (file_.is_open()) {
-      file_ << res_.get().body();
+      file_ << (*res_).get().body();
       file_.close();
     }
     std::cout << std::endl;

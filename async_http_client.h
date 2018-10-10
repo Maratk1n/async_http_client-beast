@@ -24,7 +24,8 @@ class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/
   boost::beast::flat_buffer buffer_;
 
   boost::beast::http::request<boost::beast::http::empty_body> req_;
-  boost::beast::http::response_parser<boost::beast::http::string_body> res_;
+  //boost::beast::http::response_parser<boost::beast::http::string_body> res_;
+  boost::optional<boost::beast::http::response_parser<boost::beast::http::string_body>> res_;
 
   const size_t max_chunk_size_ = 16384;
   // The io_context is required for all I/O
@@ -48,9 +49,6 @@ class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/
 
   size_t content_size_ = 0;
   size_t total_load_ = 0;
-  //./main -s http://master.qt.io -p 80 -t /archive/qt/5.10/5.10.1/submodules/qtwebengine-everywhere-src-5.10.1.tar.xz -o /tmp/archive3.tar.xz
-  // http://master.qt.io/archive/qt/5.10/5.10.1/submodules/qtxmlpatterns-everywhere-src-5.10.1.zip
-
 
   std::string percentage2scale(unsigned int percentage);
 public:
