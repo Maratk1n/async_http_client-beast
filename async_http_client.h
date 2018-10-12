@@ -46,9 +46,11 @@ class AsyncHttpClient /*: public std::enable_shared_from_this<AsyncHttpClient>*/
 
   std::ofstream file_;
   std::string file_name_;
-
+  std::string config_name_ = "/.aws/credentials";
   size_t content_size_ = 0;
   size_t total_load_ = 0;
+  std::string aws_access_key_id_;
+  std::string aws_secret_access_key_;
 
   std::string percentage2scale(unsigned int percentage);
 public:

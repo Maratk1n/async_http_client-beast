@@ -25,6 +25,15 @@ find_package(Boost 1.65 COMPONENTS
 include_directories(${Boost_INCLUDE_DIR})
 
 aux_source_directory(${CMAKE_SOURCE_DIR} SOURCES)
+#file(GLOB SOURCES
+#    ${CMAKE_SOURCE_DIR}/*.h
+#    ${CMAKE_SOURCE_DIR}/*.cpp
+#)
+
+#aux_source_directory("${CMAKE_SOURCE_DIR}/hash-library" SOURCES)
+#include_directories("${CMAKE_SOURCE_DIR}/hash-library")
+#file(GLOB headers "${CMAKE_SOURCE_DIR}/hash-library/*.h")
+
 message(STATUS "sources: ${SOURCES}")
 
 add_executable(main "${SOURCES}")

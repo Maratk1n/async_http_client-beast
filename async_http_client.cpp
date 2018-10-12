@@ -6,6 +6,12 @@
 #include <boost/asio/read_until.hpp>
 #include <boost/asio.hpp>
 #include <boost/format.hpp>
+#include <boost/date_time.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/ini_parser.hpp>
+#include "hmac.h"
+#include "sha256.h"
+#include "base64.h"
 
 AsyncHttpClient::AsyncHttpClient()
 {
@@ -41,7 +47,7 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
     throw std::runtime_error("Undefined protocol");
   }
   https_mode_ = protocol == "https" ? true : false;
-
+  //https_mode_ = true;
   // Set SNI Hostname (many hosts need this to handshake successfully)
   if(https_mode_ && !SSL_set_tlsext_host_name(stream_.native_handle(), const_cast<char*>(server.c_str()))) {
     boost::system::error_code ec{static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category()};
@@ -55,6 +61,52 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
   req_.target(target);
   req_.set(boost::beast::http::field::host, server);
   req_.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+  req_.set(boost::beast::http::field::date, boost::posix_time::to_iso_string(boost::posix_time::second_clock::local_time())+"Z");
+
+  // load amazon secret key
+  boost::property_tree::ptree pt;
+  boost::property_tree::ini_parser::read_ini(getenv("HOME") + config_name_, pt);
+  aws_access_key_id_ = pt.get<std::string>("default.aws_access_key_id");
+  aws_secret_access_key_ = pt.get<std::string>("default.aws_secret_access_key");
+
+  boost::posix_time::ptime todayUTC(boost::gregorian::day_clock::universal_day(), boost::posix_time::second_clock::universal_time().time_of_day());
+  std::string amzdate = boost::posix_time::to_iso_string(todayUTC)+"Z";
+  std::string datestamp = boost::posix_time::to_iso_string(todayUTC).erase(8);
+  std::string method = req_.method_string().to_string();
+  std::string service = "s3";
+  std::string s3_host = "rclab-messages.s3.amazonaws.com";
+  std::string region = "eu-central-1";
+  std::string endpoint = "https://rclab-messages.s3.amazonaws.com";
+  std::string request_parameters = "Action=DescribeRegions&Version=2013-10-15";
+
+  std::string canonical_uri = "/";
+  std::string canonical_querystring = "acl";
+  class SHA256 sha256;
+  std::string payload_hash = sha256("");
+  std::string canonical_headers = "host:" + s3_host + "\n" + "x-amz-date:" + amzdate + "\n" + "x-amz-content-sha256:" + payload_hash + "\n";
+  std::string signed_headers = "host;x-amz-date;x-amz-content-sha256";
+  std::string canonical_request = method + '\n' + canonical_uri + '\n' + canonical_querystring + '\n' + canonical_headers + '\n' + signed_headers + '\n' + payload_hash;
+  std::cout << canonical_request << std::endl;
+
+  // create string to sign
+  std::string algorithm = "AWS4-HMAC-SHA256";
+  std::string credential_scope = datestamp + "/" + region + "/" + service + "/" + "aws4_request";
+  std::string string_to_sign = algorithm + "\n" +  amzdate + "\n" +  credential_scope + "\n" +  sha256(canonical_request);
+  std::cout << string_to_sign << std::endl;
+
+  //create signing key
+  std::string dateKey = hmac<class SHA256>("AWS4" + aws_secret_access_key_, datestamp);
+  std::string dateRegionKey = hmac<class SHA256>(dateKey, region);
+  std::string dateRegionServiceKey = hmac<class SHA256>(dateRegionKey, service);
+  std::string signing_key = hmac<class SHA256>(dateRegionServiceKey, std::string("aws4_request"));
+
+  std::string signature = hmac<class SHA256>(signing_key, string_to_sign);
+
+  std::string authorization_header = algorithm + " " + "Credential=" + aws_access_key_id_ + "/" + credential_scope + ", " +  "SignedHeaders=" + signed_headers + ", " + "Signature=" + signature;
+
+  req_.set(boost::beast::http::field::authorization, authorization_header);
+  req_.insert("x-amz-date", amzdate);
+  req_.insert("x-amz-content-sha256", payload_hash);
 
   // Look up the domain name
   resolver_.async_resolve(server, port, std::bind(&AsyncHttpClient::onResolve, this, std::placeholders::_1, std::placeholders::_2));
@@ -113,6 +165,10 @@ void AsyncHttpClient::onWrite(boost::system::error_code ec, std::size_t bytes_tr
   if(ec) {
     return fail(ec, "write");
   }
+  else {
+    std::cout << "[Request]" << std::endl;
+    std::cout << req_.base() << std::endl;
+  }
 
   if (https_mode_) {
     // Receive the HTTP response
@@ -131,9 +187,12 @@ void AsyncHttpClient::onReadHeader(boost::system::error_code ec, std::size_t byt
   if(ec) {
     return fail(ec, "read header");
   }
-  content_size_ = (*res_).content_length().value();
+  else {
+    std::cout << "[Response]" << std::endl;
+    std::cout << (*res_).get().base() << std::endl; // print header
 
-  std::cout << (*res_).get().base() << std::endl; // print header
+  }
+  content_size_ = (*res_).content_length().is_initialized() ? (*res_).content_length().value() : 0;
 
   if (file_.is_open() && !(*res_).get().body().empty()) {
     file_ << (*res_).get().body();
@@ -159,11 +218,13 @@ void AsyncHttpClient::onRead(boost::system::error_code ec, std::size_t bytes_tra
     return fail(ec, "read content");
   }
 
-  unsigned int percent = static_cast<unsigned int>(total_load_ * 100.0f / content_size_);
-  if (ec == boost::asio::error::eof) {
-    percent = 100;
+  if (content_size_ > 0) {
+    unsigned int percent = static_cast<unsigned int>(total_load_ * 100.0f / content_size_);
+    if (ec == boost::asio::error::eof) {
+      percent = 100;
+    }
+    std::cout << "Download: " << "[" << percentage2scale(percent) << "] (" << percent <<  "%)\r" << std::flush;
   }
-  std::cout << "Download: " << "[" << percentage2scale(percent) << "] (" << percent <<  "%)\r" << std::flush;
 
   //if (ec != boost::asio::error::eof) { // continue loading
   if (!(*res_).is_done()) { // continue loading
@@ -186,7 +247,7 @@ void AsyncHttpClient::onRead(boost::system::error_code ec, std::size_t bytes_tra
       file_.close();
     }
     std::cout << std::endl;
-    std::cout << "Download completed." << std::endl;
+    std::cout << "Done." << std::endl;
     if (https_mode_) {
       // Gracefully close the stream
       stream_.async_shutdown(std::bind(&AsyncHttpClient::onShutdown, this, std::placeholders::_1));
