@@ -55,13 +55,18 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
     return;
   }
 
+  boost::posix_time::ptime todayUTC(boost::gregorian::day_clock::universal_day(), boost::posix_time::second_clock::universal_time().time_of_day());
+  std::string amzdate = boost::posix_time::to_iso_string(todayUTC)+"Z";
+  //amzdate = "20181012T110752Z";
+  std::string datestamp = std::string(amzdate).erase(8);
+
   // Set up an HTTP GET request message
   req_.version(version);
   req_.method(boost::beast::http::verb::get);
   req_.target(target);
   req_.set(boost::beast::http::field::host, server);
   req_.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-  req_.set(boost::beast::http::field::date, boost::posix_time::to_iso_string(boost::posix_time::second_clock::local_time())+"Z");
+  //req_.set(boost::beast::http::field::date, amzdate);
 
   // load amazon secret key
   boost::property_tree::ptree pt;
@@ -69,30 +74,30 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
   aws_access_key_id_ = pt.get<std::string>("default.aws_access_key_id");
   aws_secret_access_key_ = pt.get<std::string>("default.aws_secret_access_key");
 
-  boost::posix_time::ptime todayUTC(boost::gregorian::day_clock::universal_day(), boost::posix_time::second_clock::universal_time().time_of_day());
-  std::string amzdate = boost::posix_time::to_iso_string(todayUTC)+"Z";
-  std::string datestamp = boost::posix_time::to_iso_string(todayUTC).erase(8);
   std::string method = req_.method_string().to_string();
   std::string service = "s3";
-  std::string s3_host = "rclab-messages.s3.amazonaws.com";
+  std::string s3_host = "rclab-messages.s3.eu-central-1.amazonaws.com";
   std::string region = "eu-central-1";
-  std::string endpoint = "https://rclab-messages.s3.amazonaws.com";
-  std::string request_parameters = "Action=DescribeRegions&Version=2013-10-15";
+  //std::string endpoint = "https://rclab-messages.s3.eu-central-1.amazonaws.com";
+  //std::string request_parameters = "Action=DescribeRegions&Version=2013-10-15";
 
   std::string canonical_uri = "/";
-  std::string canonical_querystring = "acl";
+  std::string canonical_querystring = "";
   class SHA256 sha256;
   std::string payload_hash = sha256("");
-  std::string canonical_headers = "host:" + s3_host + "\n" + "x-amz-date:" + amzdate + "\n" + "x-amz-content-sha256:" + payload_hash + "\n";
-  std::string signed_headers = "host;x-amz-date;x-amz-content-sha256";
+  std::string canonical_headers = "host:" + s3_host + "\n" + "x-amz-content-sha256:" + payload_hash + "\n" + "x-amz-date:" + amzdate + '\n';
+  std::string signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date";
   std::string canonical_request = method + '\n' + canonical_uri + '\n' + canonical_querystring + '\n' + canonical_headers + '\n' + signed_headers + '\n' + payload_hash;
+  std::cout << "--------------------" << std::endl;
   std::cout << canonical_request << std::endl;
+  std::cout << "--------------------" << std::endl;
 
   // create string to sign
   std::string algorithm = "AWS4-HMAC-SHA256";
   std::string credential_scope = datestamp + "/" + region + "/" + service + "/" + "aws4_request";
   std::string string_to_sign = algorithm + "\n" +  amzdate + "\n" +  credential_scope + "\n" +  sha256(canonical_request);
   std::cout << string_to_sign << std::endl;
+  std::cout << "--------------------" << std::endl;
 
   //create signing key
   std::string dateKey = hmac<class SHA256>("AWS4" + aws_secret_access_key_, datestamp);
@@ -107,6 +112,8 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
   req_.set(boost::beast::http::field::authorization, authorization_header);
   req_.insert("x-amz-date", amzdate);
   req_.insert("x-amz-content-sha256", payload_hash);
+  req_.set(boost::beast::http::field::accept, "*/*");
+  req_.set(boost::beast::http::field::content_type, "application/xml");
 
   // Look up the domain name
   resolver_.async_resolve(server, port, std::bind(&AsyncHttpClient::onResolve, this, std::placeholders::_1, std::placeholders::_2));
