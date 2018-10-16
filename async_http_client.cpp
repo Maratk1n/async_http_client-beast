@@ -9,9 +9,35 @@
 #include <boost/date_time.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
-#include "hmac.h"
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include "sha256.h"
-#include "base64.h"
+#include <sstream>
+
+static const size_t HashBytes = 32;
+typedef std::vector<unsigned char> ByteArray;
+unsigned char* hmac_sha256(const void *key, int keylen, const unsigned char *data, size_t datalen, unsigned char *result = NULL, unsigned int* resultlen = NULL)
+{
+  return HMAC(EVP_sha256(), key, keylen, data, datalen, result, resultlen);
+}
+
+std::string toHex(const ByteArray &array) {
+  std::ostringstream ss;
+  for (size_t i = 0; i < array.size(); ++i)
+  {
+    for (unsigned char j = 0; j < 2; ++j)
+    {
+      unsigned char nibble = 0x0F & (array.at(i) >> ((1 - j) * 4));
+      char encodedNibble;
+      if (nibble < 0x0A)
+        encodedNibble = '0' + nibble;
+      else
+        encodedNibble = 'a' + nibble - 0x0A;
+      ss << encodedNibble;
+    }
+  }
+  return ss.str();
+}
 
 AsyncHttpClient::AsyncHttpClient()
 {
@@ -57,7 +83,7 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
 
   boost::posix_time::ptime todayUTC(boost::gregorian::day_clock::universal_day(), boost::posix_time::second_clock::universal_time().time_of_day());
   std::string amzdate = boost::posix_time::to_iso_string(todayUTC)+"Z";
-  //amzdate = "20181012T110752Z";
+  //amzdate = "20181015T162612Z";
   std::string datestamp = std::string(amzdate).erase(8);
 
   // Set up an HTTP GET request message
@@ -80,12 +106,13 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
   std::string region = "eu-central-1";
   //std::string endpoint = "https://rclab-messages.s3.eu-central-1.amazonaws.com";
   //std::string request_parameters = "Action=DescribeRegions&Version=2013-10-15";
+  std::string content_type = "application/xml";
 
-  std::string canonical_uri = "/";
+  std::string canonical_uri = "/logs/2018-07-14-00-41-17-BA1ACC53E2C50503";
   std::string canonical_querystring = "";
   class SHA256 sha256;
   std::string payload_hash = sha256("");
-  std::string canonical_headers = "host:" + s3_host + "\n" + "x-amz-content-sha256:" + payload_hash + "\n" + "x-amz-date:" + amzdate + '\n';
+  std::string canonical_headers = "content-type:" + content_type + "\n" + "host:" + s3_host + "\n" + "x-amz-content-sha256:" + payload_hash + "\n" + "x-amz-date:" + amzdate + '\n';
   std::string signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date";
   std::string canonical_request = method + '\n' + canonical_uri + '\n' + canonical_querystring + '\n' + canonical_headers + '\n' + signed_headers + '\n' + payload_hash;
   std::cout << "--------------------" << std::endl;
@@ -94,26 +121,38 @@ void AsyncHttpClient::run(const char *host, const char *port, const char *target
 
   // create string to sign
   std::string algorithm = "AWS4-HMAC-SHA256";
-  std::string credential_scope = datestamp + "/" + region + "/" + service + "/" + "aws4_request";
+  std::string aws4_req = "aws4_request";
+  std::string credential_scope = datestamp + "/" + region + "/" + service + "/" + aws4_req;
   std::string string_to_sign = algorithm + "\n" +  amzdate + "\n" +  credential_scope + "\n" +  sha256(canonical_request);
   std::cout << string_to_sign << std::endl;
   std::cout << "--------------------" << std::endl;
 
   //create signing key
-  std::string dateKey = hmac<class SHA256>("AWS4" + aws_secret_access_key_, datestamp);
-  std::string dateRegionKey = hmac<class SHA256>(dateKey, region);
-  std::string dateRegionServiceKey = hmac<class SHA256>(dateRegionKey, service);
-  std::string signing_key = hmac<class SHA256>(dateRegionServiceKey, std::string("aws4_request"));
+  std::string signingKey = "AWS4" + aws_secret_access_key_;
+  ByteArray dateKey(HashBytes);
+  hmac_sha256((unsigned char*)(&signingKey[0]), signingKey.length(), (unsigned char*)(&datestamp[0]), datestamp.length(), &dateKey[0]);
+  std::cout << "dateKey: " << toHex(dateKey) << std::endl;
+  ByteArray dateRegionKey(HashBytes);
+  hmac_sha256(&dateKey[0], dateKey.size(), (unsigned char*)(&region[0]), region.length(), &dateRegionKey[0]);
+  std::cout << "dataRegionKey: " << toHex(dateRegionKey) << std::endl;
+  ByteArray dateRegionServiceKey(HashBytes);
+  hmac_sha256(&dateRegionKey[0], dateRegionKey.size(), (unsigned char*)(&service[0]), service.length(), &dateRegionServiceKey[0]);
+  std::cout << "dateRegionServiceKey: " << toHex(dateRegionServiceKey) << std::endl;
+  ByteArray signing_key(HashBytes);
+  hmac_sha256(&dateRegionServiceKey[0], dateRegionServiceKey.size(), (unsigned char*)(&aws4_req[0]), aws4_req.length(), &signing_key[0]);
+  std::cout <<  "signing_key: " << toHex(signing_key) << std::endl;
 
-  std::string signature = hmac<class SHA256>(signing_key, string_to_sign);
+  ByteArray signature(HashBytes);
+  hmac_sha256(&signing_key[0], signing_key.size(), (unsigned char*)(&string_to_sign[0]), string_to_sign.length(), &signature[0]);
 
-  std::string authorization_header = algorithm + " " + "Credential=" + aws_access_key_id_ + "/" + credential_scope + ", " +  "SignedHeaders=" + signed_headers + ", " + "Signature=" + signature;
+  std::string authorization_header = algorithm + " " + "Credential=" + aws_access_key_id_ + "/" + credential_scope + ", " +
+      "SignedHeaders=" + signed_headers + ", " + "Signature=" + toHex(signature);
 
   req_.set(boost::beast::http::field::authorization, authorization_header);
   req_.insert("x-amz-date", amzdate);
   req_.insert("x-amz-content-sha256", payload_hash);
   req_.set(boost::beast::http::field::accept, "*/*");
-  req_.set(boost::beast::http::field::content_type, "application/xml");
+  req_.set(boost::beast::http::field::content_type, content_type);
 
   // Look up the domain name
   resolver_.async_resolve(server, port, std::bind(&AsyncHttpClient::onResolve, this, std::placeholders::_1, std::placeholders::_2));
